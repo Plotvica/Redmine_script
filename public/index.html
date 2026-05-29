@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redmine Dashboards</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Налаштування дашбордів">
+        <div class="brand">
+          <div class="brand-mark">R</div>
+          <div>
+            <h1>Redmine dashboards</h1>
+            <p id="connectionStatus">Перевіряю підключення...</p>
+          </div>
+        </div>
+
+        <section class="side-section">
+          <div class="side-heading">
+            <h2>Дашборди</h2>
+            <button id="newDashboardButton" class="icon-button" type="button" title="Створити дашборд">+</button>
+          </div>
+          <div id="dashboardList" class="dashboard-list"></div>
+        </section>
+
+        <form id="dashboardForm" class="builder-form">
+          <label>
+            <span>Назва</span>
+            <input id="dashboardName" type="text" maxlength="64" autocomplete="off" />
+          </label>
+
+          <fieldset>
+            <legend>Cards</legend>
+            <div class="add-card-row">
+              <select id="cardTypeSelect"></select>
+              <button id="addCardButton" type="button">Add card</button>
+            </div>
+            <div id="cardEditorList" class="card-editor-list"></div>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="submit">Зберегти</button>
+            <button id="deleteDashboardButton" class="ghost-button" type="button">Видалити</button>
+          </div>
+        </form>
+      </aside>
+
+      <main class="dashboard">
+        <header class="topbar">
+          <div>
+            <h2 id="dashboardTitle">Дашборд</h2>
+            <div class="quick-scope" aria-label="Швидкі фільтри дашборду">
+              <label>
+                <span>Проєкт</span>
+                <select id="quickProjectSelect"></select>
+              </label>
+              <label>
+                <span>Posbox_Unit</span>
+                <select id="quickUnitSelect"></select>
+              </label>
+              <label>
+                <span>Sprint</span>
+                <select id="quickSprintSelect"></select>
+              </label>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <div class="mode-toggle" aria-label="Режим перегляду">
+              <button id="viewModeButton" class="active" type="button">View</button>
+              <button id="editModeButton" type="button">Edit</button>
+            </div>
+            <button id="refreshButton" class="secondary-button" type="button">Refresh</button>
+            <div class="timestamp" id="generatedAt">Ще не завантажено</div>
+          </div>
+        </header>
+
+        <section id="warnings" class="warnings" hidden></section>
+        <section id="metricsGrid" class="metrics-grid" hidden></section>
+        <section id="widgetsGrid" class="content-grid"></section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

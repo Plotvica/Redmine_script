@@ -1,0 +1,17 @@
+{
+  "customFields": [
+    {
+      "id": 12,
+      "name": "Posbox_Unit",
+      "format": "list",
+      "isFilter": true,
+      "possibleValues": ["Unit A", "Unit B"]
+    },
+    {
+      "id": 34,
+      "name": "Координатор",
+      "format": "user",
+      "isFilter": true
+    }
+  ]
+}
