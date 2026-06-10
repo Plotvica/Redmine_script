@@ -429,15 +429,24 @@ async function fetchCardData(dashboard) {
       scopedDashboards.set(key, {
         dashboard: scopedDashboard,
         cardIds: [],
+        cardTypes: new Set(),
       });
     }
-    scopedDashboards.get(key).cardIds.push(card.id);
+    const entry = scopedDashboards.get(key);
+    entry.cardIds.push(card.id);
+    entry.cardTypes.add(card.type);
   }
 
-  const loaded = await Promise.all([...scopedDashboards.values()].map(async (entry) => ({
-    cardIds: entry.cardIds,
-    data: await fetchDashboard(entry.dashboard),
-  })));
+  const loaded = [];
+  for (const entry of scopedDashboards.values()) {
+    loaded.push({
+      cardIds: entry.cardIds,
+      data: await fetchDashboard({
+        ...entry.dashboard,
+        features: [...entry.cardTypes],
+      }),
+    });
+  }
   const entries = loaded.flatMap((entry) => entry.cardIds.map((cardId) => [cardId, entry.data]));
 
   return Object.fromEntries(entries);
@@ -469,6 +478,7 @@ function resolveCardPeriod(period, projectId = "") {
   if (sprint) {
     return {
       ...period,
+      sprintName: period.sprintName || sprint.name || "",
       from: period.from || sprint.startDate || "",
       to: period.to || sprint.endDate || "",
     };

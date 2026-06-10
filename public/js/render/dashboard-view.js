@@ -121,7 +121,7 @@ function renderCardBody(container, card, definition, data) {
       }),
       onSelect: (item) => openDrilldown({
         title: `${card.title}: ${item.label}`,
-        issues: filterFlowIssues(data.lists.allIssues, definition.flowKey, item.label),
+        issues: flowPointIssues(data.lists.allIssues, definition.flowKey, item),
       }),
     });
     return;
@@ -208,6 +208,10 @@ function renderIssueEffortTable(container, rows, cardId) {
       effortFilterState.set(cardId, { ...filters, statuses: values });
       renderIssueEffortTable(container, rows, cardId);
     }),
+    effortMultiSelect("Пріоритети", uniqueValues(rows, "priority"), filters.priorities, (values) => {
+      effortFilterState.set(cardId, { ...filters, priorities: values });
+      renderIssueEffortTable(container, rows, cardId);
+    }),
     effortMultiSelect("Виконавці", uniqueValues(rows, "assignee"), filters.assignees, (values) => {
       effortFilterState.set(cardId, { ...filters, assignees: values });
       renderIssueEffortTable(container, rows, cardId);
@@ -222,6 +226,7 @@ function renderIssueEffortTable(container, rows, cardId) {
     new Option("Тип задачі", "tracker"),
     new Option("Виконавець", "assignee"),
     new Option("Статус", "status"),
+    new Option("Пріоритет", "priority"),
   );
   select.value = sortKey;
   select.addEventListener("change", () => {
@@ -245,6 +250,7 @@ function renderIssueEffortTable(container, rows, cardId) {
         <th>Задача</th>
         <th>Тип</th>
         <th>Статус</th>
+        <th>Пріоритет</th>
         <th>Виконавець</th>
         <th>Оцінка</th>
         <th>Витрачено</th>
@@ -263,6 +269,7 @@ function renderIssueEffortTable(container, rows, cardId) {
       <td></td>
       <td></td>
       <td></td>
+      <td></td>
       <td>${formatNumber(issue.estimatedHours)}h</td>
       <td>${formatNumber(issue.spentHours)}h</td>
       <td>${formatNumber(issue.remainingHours)}h</td>
@@ -270,7 +277,8 @@ function renderIssueEffortTable(container, rows, cardId) {
     row.children[1].textContent = issue.subject;
     row.children[2].textContent = issue.tracker || "Без типу";
     row.children[3].textContent = issue.status || "Без статусу";
-    row.children[4].textContent = issue.assignee || "Не призначено";
+    row.children[4].textContent = issue.priority || "Без пріоритету";
+    row.children[5].textContent = issue.assignee || "Не призначено";
     body.append(row);
   }
 
@@ -325,6 +333,7 @@ function normalizeEffortFilters(filters = {}) {
   return {
     trackers: Array.isArray(filters.trackers) ? filters.trackers : [],
     statuses: Array.isArray(filters.statuses) ? filters.statuses : [],
+    priorities: Array.isArray(filters.priorities) ? filters.priorities : [],
     assignees: Array.isArray(filters.assignees) ? filters.assignees : [],
   };
 }
@@ -333,6 +342,7 @@ function filterEffortRows(rows, filters) {
   return rows.filter((row) => (
     matchesSelected(row.tracker, filters.trackers)
     && matchesSelected(row.status, filters.statuses)
+    && matchesSelected(row.priority, filters.priorities)
     && matchesSelected(row.assignee, filters.assignees)
   ));
 }
@@ -356,6 +366,9 @@ function sortEffortRows(rows, sortKey) {
   }
   if (sortKey === "status") {
     return sorted.sort((a, b) => compareText(a.status, b.status) || compareText(a.tracker, b.tracker) || b.spentHours - a.spentHours);
+  }
+  if (sortKey === "priority") {
+    return sorted.sort((a, b) => compareText(a.priority, b.priority) || compareText(a.status, b.status) || b.spentHours - a.spentHours);
   }
   return sorted.sort((a, b) => b.spentHours - a.spentHours || b.estimatedHours - a.estimatedHours || a.id - b.id);
 }
@@ -551,8 +564,13 @@ function filterIssues(issues, field, value, options = {}) {
   return issues.filter((issue) => (issue[field] || `Без ${field}`) === value);
 }
 
-function filterFlowIssues(issues, flowKey, dateLabel) {
-  const pointDate = new Date(dateLabel);
+function flowPointIssues(issues, flowKey, item) {
+  const issuesById = issuesByIdMap(issues);
+  if (Array.isArray(item.issueIds)) {
+    return item.issueIds.map((id) => issuesById.get(Number(id))).filter(Boolean);
+  }
+
+  const pointDate = new Date(item.label);
   if (Number.isNaN(pointDate.getTime())) {
     return [];
   }
@@ -572,6 +590,21 @@ function filterFlowIssues(issues, flowKey, dateLabel) {
 
 function flowSummaryIssues(data, key) {
   const issues = data.lists?.allIssues || [];
+  const summary = data.flow?.summary || {};
+  const issuesById = issuesByIdMap(issues);
+
+  if (key === "completed" && Array.isArray(summary.completedIssueIds)) {
+    return summary.completedIssueIds.map((id) => issuesById.get(Number(id))).filter(Boolean);
+  }
+
+  if (key === "remaining" && Array.isArray(summary.remainingIssueIds)) {
+    return summary.remainingIssueIds.map((id) => issuesById.get(Number(id))).filter(Boolean);
+  }
+
+  if (key === "total" && Array.isArray(summary.totalIssueIds)) {
+    return summary.totalIssueIds.map((id) => issuesById.get(Number(id))).filter(Boolean);
+  }
+
   const endDate = data.flow?.summary?.endDate || data.flow?.burndown?.at(-1)?.label;
   const periodEnd = endOfDay(new Date(endDate));
 
@@ -592,6 +625,10 @@ function flowSummaryIssues(data, key) {
   return issues;
 }
 
+function issuesByIdMap(issues) {
+  return new Map((issues || []).map((issue) => [Number(issue.id), issue]));
+}
+
 function flowSummaryLabel(key) {
   return {
     total: "Усього",
@@ -601,10 +638,14 @@ function flowSummaryLabel(key) {
 }
 
 function issueCompletionDate(issue) {
+  if (!isIssueDone(issue)) {
+    return new Date(0);
+  }
+
   if (issue.closedOn) {
     return new Date(issue.closedOn);
   }
-  return isIssueDone(issue) ? new Date(issue.updatedOn || 0) : new Date(0);
+  return new Date(issue.updatedOn || 0);
 }
 
 function startOfDay(date) {
@@ -614,7 +655,7 @@ function startOfDay(date) {
 }
 
 function isIssueDone(issue) {
-  return ["closed", "resolved", "done", "for deploy", "закрито", "закрыта", "закрыто"].includes(String(issue.status || "").trim().toLowerCase());
+  return ["done", "for deploy"].includes(String(issue.status || "").trim().toLowerCase());
 }
 
 function endOfDay(date) {

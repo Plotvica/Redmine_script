@@ -46,6 +46,10 @@ export async function fetchDashboard(dashboard) {
     params.set("sprint_id", dashboard.period.sprintId);
   }
 
+  if (dashboard.period.sprintName) {
+    params.set("sprint_name", dashboard.period.sprintName);
+  }
+
   if (dashboard.filters.assigneeId) {
     params.set("assignee_id", dashboard.filters.assigneeId);
   }
@@ -74,6 +78,10 @@ export async function fetchDashboard(dashboard) {
 
   if (dashboard.filters.priorityId) {
     params.set("priority_id", dashboard.filters.priorityId);
+  }
+
+  if (dashboard.features?.length) {
+    params.set("features", dashboard.features.join(","));
   }
 
   for (const [key, value] of Object.entries(dashboard.filters.customFields || {})) {

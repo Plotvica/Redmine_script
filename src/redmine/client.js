@@ -1,4 +1,16 @@
-function createRedmineClient({ url: baseUrl, apiKey }) {
+function createRedmineClient({
+  url: baseUrl,
+  apiKey,
+  requestConcurrency = 1,
+  requestDelayMs = 250,
+  requestRetries = 4,
+  requestRetryBaseMs = 1500,
+}) {
+  const schedule = createRequestQueue({
+    concurrency: requestConcurrency,
+    delayMs: requestDelayMs,
+  });
+
   async function get(endpoint, params = {}) {
     const requestUrl = new URL(`${baseUrl}${endpoint}`);
 
@@ -8,19 +20,34 @@ function createRedmineClient({ url: baseUrl, apiKey }) {
       }
     }
 
-    const response = await fetch(requestUrl, {
-      headers: {
-        "Accept": "application/json",
-        "X-Redmine-API-Key": apiKey,
-      },
-    });
+    return schedule(() => requestJson(requestUrl));
+  }
 
-    if (!response.ok) {
+  async function requestJson(requestUrl) {
+    for (let attempt = 0; attempt <= requestRetries; attempt += 1) {
+      const response = await fetch(requestUrl, {
+        headers: {
+          "Accept": "application/json",
+          "X-Redmine-API-Key": apiKey,
+        },
+      });
+
+      if (response.ok) {
+        return response.json();
+      }
+
       const text = await response.text();
-      throw new Error(`Redmine ${response.status}: ${text.slice(0, 220) || response.statusText}`);
+      if (response.status === 429 && attempt < requestRetries) {
+        const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
+        await delay(Math.max(retryAfter, retryDelay(attempt, requestRetryBaseMs)));
+        continue;
+      }
+
+      const attemptsText = attempt > 0 ? ` after ${attempt + 1} attempts` : "";
+      throw new Error(`Redmine ${response.status}${attemptsText}: ${text.slice(0, 220) || response.statusText}`);
     }
 
-    return response.json();
+    throw new Error("Redmine request failed.");
   }
 
   async function fetchPaginated(endpoint, params, collectionKey, limit = 100, maxItems = Infinity) {
@@ -46,6 +73,73 @@ function createRedmineClient({ url: baseUrl, apiKey }) {
   }
 
   return { fetchPaginated, get };
+}
+
+function createRequestQueue({ concurrency, delayMs }) {
+  const queue = [];
+  let active = 0;
+  let nextStartAt = 0;
+  let timer = null;
+
+  function schedule(task) {
+    return new Promise((resolve, reject) => {
+      queue.push({ task, resolve, reject });
+      pump();
+    });
+  }
+
+  function pump() {
+    if (timer || active >= concurrency || !queue.length) {
+      return;
+    }
+
+    const waitMs = Math.max(0, nextStartAt - Date.now());
+    if (waitMs > 0) {
+      timer = setTimeout(() => {
+        timer = null;
+        pump();
+      }, waitMs);
+      return;
+    }
+
+    const item = queue.shift();
+    active += 1;
+    nextStartAt = Date.now() + delayMs;
+
+    Promise.resolve()
+      .then(item.task)
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        active -= 1;
+        pump();
+      });
+
+    pump();
+  }
+
+  return schedule;
+}
+
+function parseRetryAfter(value) {
+  if (!value) {
+    return 0;
+  }
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? 0 : Math.max(0, date - Date.now());
+}
+
+function retryDelay(attempt, baseMs) {
+  return baseMs * (2 ** attempt);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = { createRedmineClient };

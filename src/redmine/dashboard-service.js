@@ -2,13 +2,34 @@ const { addDays, parseDate, startOfToday, toDateOnly } = require("../utils/dates
 const { groupCount, groupHours, roundHours, sumHours } = require("../utils/series");
 
 const MOVEMENT_SCAN_LIMIT = 150;
+const ISSUE_DETAIL_CACHE_MS = 5 * 60 * 1000;
+const SPRINT_CACHE_MS = 10 * 60 * 1000;
 const POS_WORKLOG_TRACKERS = ["POS_Worklog", "Posbox_Worklog"];
+const DONE_STATUSES = ["done", "for deploy"];
 let trackerCachePromise = null;
+const issueDetailCache = new Map();
+const sprintCache = new Map();
 
 async function buildDashboard({ config, redmine, filters }) {
   const now = new Date();
   const period = resolvePeriod(filters, now);
   const isPosWorklogSource = filters.timeSource === "pos_worklog";
+  const features = normalizeFeatureSet(filters.features);
+  const buildEverything = features.size === 0;
+  const needsFlow = buildEverything || hasAnyFeature(features, ["burndown", "burnup"]);
+  const needsMovement = buildEverything || features.has("sprint-movement");
+  const needsTimeline = buildEverything || features.has("sprint-timeline");
+  const needsEffort = buildEverything || features.has("effort-table");
+  const needsTaskTimeDetails = buildEverything || features.has("time-user");
+  const needsPosWorklogDetails = buildEverything || features.has("pos-worklog-user");
+  const needsTimeEntries = buildEverything || hasAnyFeature(features, [
+    "metrics",
+    "effort-table",
+    "time-user",
+    "time-activity",
+    "time-project",
+    "pos-worklog-user",
+  ]);
   const issueParams = {
     sort: "updated_on:desc",
   };
@@ -39,11 +60,7 @@ async function buildDashboard({ config, redmine, filters }) {
     issueParams.fixed_version_id = filters.versionId;
   }
 
-  if (!isPosWorklogSource && filters.sprintId) {
-    issueParams.sprint_id = filters.sprintId;
-  }
-
-  if (!isPosWorklogSource && period.from && period.to && !filters.versionId) {
+  if (!isPosWorklogSource && period.from && period.to && !filters.versionId && !filters.sprintId) {
     issueParams.updated_on = `><${period.from}|${period.to}`;
   }
 
@@ -52,12 +69,22 @@ async function buildDashboard({ config, redmine, filters }) {
   }
 
   const trackerIds = await resolveTrackerIds({ redmine, filters });
-  const issues = await fetchIssueCollection({
+  const rawIssues = await fetchIssueCollection({
     redmine,
     config,
     params: issueParams,
     trackerIds,
   });
+  const sprintScope = filters.sprintId && !isPosWorklogSource
+    ? await buildSprintScope({
+        redmine,
+        config,
+        filters,
+        period,
+        issues: rawIssues,
+      })
+    : null;
+  const issues = sprintScope?.issues || rawIssues;
 
   const openIssues = issues.filter((issue) => !isClosed(issue));
   const closedIssues = issues.filter(isClosed);
@@ -70,27 +97,37 @@ async function buildDashboard({ config, redmine, filters }) {
     .filter((issue) => parseDate(issue.updated_on) < addDays(now, -14))
     .sort((a, b) => parseDate(a.updated_on) - parseDate(b.updated_on));
 
-  const { timeEntries, timeError } = await fetchTimeEntries({
-    redmine,
-    config,
-    projectId: filters.projectId,
-    fromDate: parseDate(period.from),
-    now,
-    period,
-    issues,
-    timeUserIds: filters.timeUserIds,
-  });
+  const { timeEntries, timeError } = needsTimeEntries
+    ? await fetchTimeEntries({
+        redmine,
+        config,
+        projectId: filters.projectId,
+        fromDate: parseDate(period.from),
+        now,
+        period,
+        issues,
+        timeUserIds: filters.timeUserIds,
+      })
+    : { timeEntries: [], timeError: null };
   const issueById = new Map(issues.map((issue) => [Number(issue.id), issue]));
   const posWorklogTimeEntries = timeEntries.filter((entry) => isPosWorklogEntry(entry, issueById));
   const taskTimeEntries = timeEntries.filter((entry) => !isPosWorklogEntry(entry, issueById));
-  const flow = buildFlowSeries(issues, period);
-  const movement = await buildSprintMovement({
-    redmine,
-    config,
-    filters,
-    period,
-    issues,
-  });
+  const flow = needsFlow ? buildFlowSeries(issues, period) : emptyFlow(period);
+  const movement = needsMovement
+    ? (sprintScope?.movement || await buildSprintMovement({
+        redmine,
+        config,
+        filters,
+        period,
+        issues,
+      }))
+    : emptyMovement();
+  const taskTimeDetails = needsTaskTimeDetails
+    ? buildTimeDetails(taskTimeEntries, issues, config.redmine.url).byUser
+    : {};
+  const posWorklogTimeDetails = needsPosWorklogDetails
+    ? buildTimeDetails(posWorklogTimeEntries, issues, config.redmine.url).byUser
+    : {};
 
   return {
     generatedAt: now.toISOString(),
@@ -132,13 +169,13 @@ async function buildDashboard({ config, redmine, filters }) {
     customFields: buildCustomFieldBreakdowns(issues),
     flow,
     movement,
-    timeline: buildTimeline(issues, period, config.redmine.url),
+    timeline: needsTimeline ? buildTimeline(issues, period, config.redmine.url) : [],
     timeDetails: {
-      byUser: buildTimeDetails(taskTimeEntries, issues, config.redmine.url).byUser,
-      posWorklogByUser: buildTimeDetails(posWorklogTimeEntries, issues, config.redmine.url).byUser,
+      byUser: taskTimeDetails,
+      posWorklogByUser: posWorklogTimeDetails,
     },
     tables: {
-      issueEffort: buildIssueEffortTable(issues, taskTimeEntries, config.redmine.url),
+      issueEffort: needsEffort ? buildIssueEffortTable(issues, taskTimeEntries, config.redmine.url) : [],
     },
     lists: {
       allIssues: issues.map((issue) => summarizeIssue(issue, config.redmine.url)),
@@ -150,7 +187,7 @@ async function buildDashboard({ config, redmine, filters }) {
     },
     warnings: {
       timeEntries: timeError,
-      movement: movement.error,
+      movement: movement.error || sprintScope?.error || null,
     },
   };
 }
@@ -159,7 +196,8 @@ function buildFlowSeries(issues, period) {
   const days = buildPeriodDays(period);
   const total = issues.length;
   const periodEnd = endOfDateLabel(days[days.length - 1]);
-  const completedByPeriodEnd = countCompletedIssues(issues, (completedOn) => completedOn <= periodEnd);
+  const completedByPeriodEnd = filterCompletedIssues(issues, (completedOn) => completedOn <= periodEnd);
+  const remainingByPeriodEnd = issues.filter((issue) => !completedByPeriodEnd.includes(issue));
 
   const burnup = [];
   const burndown = [];
@@ -167,15 +205,29 @@ function buildFlowSeries(issues, period) {
 
   for (const [index, day] of days.entries()) {
     const pointStart = startOfDateLabel(day);
-    const completed = countCompletedIssues(issues, (completedOn) => completedOn < pointStart);
+    const completedIssues = filterCompletedIssues(issues, (completedOn) => completedOn < pointStart);
+    const remainingIssues = issues.filter((issue) => !completedIssues.includes(issue));
 
-    const remaining = Math.max(total - completed, 0);
+    const completed = completedIssues.length;
+    const remaining = remainingIssues.length;
     const idealRemaining = days.length <= 1
       ? 0
       : Math.max(total - (total * (index / (days.length - 1))), 0);
 
-    burnup.push({ label: day, value: completed, total, remaining });
-    burndown.push({ label: day, value: remaining, total, completed });
+    burnup.push({
+      label: day,
+      value: completed,
+      total,
+      remaining,
+      issueIds: completedIssues.map((issue) => Number(issue.id)),
+    });
+    burndown.push({
+      label: day,
+      value: remaining,
+      total,
+      completed,
+      issueIds: remainingIssues.map((issue) => Number(issue.id)),
+    });
     idealBurndown.push({ label: day, value: Math.round(idealRemaining * 10) / 10 });
   }
 
@@ -185,8 +237,27 @@ function buildFlowSeries(issues, period) {
     idealBurndown,
     summary: {
       total,
-      completed: completedByPeriodEnd,
-      remaining: Math.max(total - completedByPeriodEnd, 0),
+      completed: completedByPeriodEnd.length,
+      remaining: remainingByPeriodEnd.length,
+      startDate: days[0],
+      endDate: days[days.length - 1],
+      totalIssueIds: issues.map((issue) => Number(issue.id)),
+      completedIssueIds: completedByPeriodEnd.map((issue) => Number(issue.id)),
+      remainingIssueIds: remainingByPeriodEnd.map((issue) => Number(issue.id)),
+    },
+  };
+}
+
+function emptyFlow(period) {
+  const days = buildPeriodDays(period);
+  return {
+    burnup: [],
+    burndown: [],
+    idealBurndown: [],
+    summary: {
+      total: 0,
+      completed: 0,
+      remaining: 0,
       startDate: days[0],
       endDate: days[days.length - 1],
     },
@@ -241,18 +312,22 @@ function dayWithinPeriod(value, period) {
   return toDateOnly(date);
 }
 
-function countCompletedIssues(issues, isInRange) {
+function filterCompletedIssues(issues, isInRange) {
   return issues.filter((issue) => {
     const completedOn = completionDate(issue);
     return completedOn.getTime() > 0 && isInRange(completedOn);
-  }).length;
+  });
 }
 
 function completionDate(issue) {
+  if (!isClosed(issue)) {
+    return new Date(0);
+  }
+
   if (issue.closed_on) {
     return parseDate(issue.closed_on);
   }
-  return isClosed(issue) ? parseDate(issue.updated_on) : new Date(0);
+  return parseDate(issue.updated_on);
 }
 
 function startOfDateLabel(label) {
@@ -337,15 +412,27 @@ async function fetchIssueCollection({ redmine, config, params, trackerIds = [], 
     return redmine.fetchPaginated("/issues.json", params, "issues", config.redmine.pageLimit, maxItems);
   }
 
-  const batches = await Promise.all(ids.map((trackerId) => redmine.fetchPaginated(
-    "/issues.json",
-    { ...params, tracker_id: trackerId },
-    "issues",
-    config.redmine.pageLimit,
-    maxItems,
-  )));
+  const batches = [];
+  for (const trackerId of ids) {
+    batches.push(await redmine.fetchPaginated(
+      "/issues.json",
+      { ...params, tracker_id: trackerId },
+      "issues",
+      config.redmine.pageLimit,
+      maxItems,
+    ));
+  }
 
   return uniqueIssues(batches.flat()).sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on));
+}
+
+function normalizeFeatureSet(features = []) {
+  const list = Array.isArray(features) ? features : String(features || "").split(",");
+  return new Set(list.map((item) => String(item).trim()).filter(Boolean));
+}
+
+function hasAnyFeature(features, expectedFeatures) {
+  return expectedFeatures.some((feature) => features.has(feature));
 }
 
 function selectedTrackerIds(filters = {}) {
@@ -504,18 +591,201 @@ function buildTimeDetails(timeEntries, issues, baseUrl) {
   return { byUser };
 }
 
+async function buildSprintScope({ redmine, config, filters, period, issues }) {
+  const sprint = await resolveSprintContext({ redmine, filters });
+  if (!sprint) {
+    return {
+      issues,
+      movement: emptyMovement(),
+      error: "Sprint metadata is unavailable.",
+    };
+  }
+
+  try {
+    const detailedIssues = await fetchDetailedIssues(redmine, issues);
+    return {
+      issues: detailedIssues
+        .filter((issue) => isIssueInSprintHistory(issue, sprint, period))
+        .sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on)),
+      movement: buildSprintMovementFromDetailedIssues(detailedIssues, sprint, period, config.redmine.url),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      issues,
+      movement: {
+        ...emptyMovement(),
+        error: error.message,
+      },
+      error: error.message,
+    };
+  }
+}
+
+async function resolveSprintContext({ redmine, filters }) {
+  if (!filters.sprintId) {
+    return null;
+  }
+
+  const sprint = {
+    id: String(filters.sprintId),
+    name: filters.sprintName || "",
+  };
+
+  if (sprint.name || !filters.projectId) {
+    return sprint;
+  }
+
+  const sprints = await fetchProjectSprints(redmine, filters.projectId);
+  const matched = sprints.find((item) => String(item.id) === sprint.id);
+  return matched ? { ...sprint, name: matched.name || "" } : sprint;
+}
+
+async function fetchProjectSprints(redmine, projectId) {
+  const cacheKey = String(projectId || "");
+  const cached = sprintCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < SPRINT_CACHE_MS) {
+    return cached.sprints;
+  }
+
+  try {
+    const response = await redmine.get(`/projects/${encodeURIComponent(projectId)}/agile_sprints.json`);
+    const sprints = response.sprints || [];
+    sprintCache.set(cacheKey, { createdAt: Date.now(), sprints });
+    return sprints;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchDetailedIssues(redmine, issues) {
+  return mapWithConcurrency(issues, 2, (issue) => fetchDetailedIssue(redmine, issue));
+}
+
+async function fetchDetailedIssue(redmine, issue) {
+  const issueId = Number(issue.id);
+  const cached = issueDetailCache.get(issueId);
+  if (
+    cached
+    && cached.updatedOn === issue.updated_on
+    && Date.now() - cached.createdAt < ISSUE_DETAIL_CACHE_MS
+  ) {
+    return cached.issue;
+  }
+
+  const response = await redmine.get(`/issues/${encodeURIComponent(issue.id)}.json`, { include: "journals" });
+  const detailedIssue = response.issue || issue;
+  issueDetailCache.set(issueId, {
+    createdAt: Date.now(),
+    updatedOn: detailedIssue.updated_on || issue.updated_on || "",
+    issue: detailedIssue,
+  });
+  return detailedIssue;
+}
+
+function buildSprintMovementFromDetailedIssues(issues, sprint, period, baseUrl) {
+  const added = new Map();
+  const removed = new Map();
+
+  for (const issue of issues) {
+    const summary = summarizeIssue(issue, baseUrl);
+    const allChanges = sprintChangeEvents(issue, sprint);
+
+    if (
+      isDateWithin(issue.created_on, period)
+      && (isIssueInSprintHistory(issue, sprint, period) || allChanges.length)
+    ) {
+      added.set(Number(issue.id), summary);
+    }
+
+    for (const change of allChanges.filter((item) => isDateWithin(item.date, period))) {
+      if (change.type === "added") {
+        added.set(Number(issue.id), summary);
+      }
+      if (change.type === "removed") {
+        removed.set(Number(issue.id), summary);
+      }
+    }
+  }
+
+  return {
+    addedIssues: [...added.values()].sort(compareIssueId),
+    removedIssues: [...removed.values()].sort(compareIssueId),
+    scannedIssues: issues.length,
+    error: null,
+  };
+}
+
+function isIssueInSprintHistory(issue, sprint, period) {
+  const changes = sprintChangeEvents(issue, sprint);
+  if (changes.length) {
+    return sprintMembershipOverlapsPeriod(changes, period);
+  }
+
+  return directSprintMatches(issue, sprint) || isDateWithin(issue.created_on, period);
+}
+
+function sprintMembershipOverlapsPeriod(changes, period) {
+  const periodStart = parseDate(period.from);
+  const periodEnd = endOfDay(parseDate(period.to));
+  if (periodStart.getTime() <= 0 || periodEnd.getTime() <= 0) {
+    return true;
+  }
+
+  let inSprint = changes[0]?.type === "removed";
+  let intervalStart = inSprint ? new Date(0) : null;
+
+  for (const change of changes) {
+    const changeDate = parseDate(change.date);
+    if (changeDate.getTime() <= 0) {
+      continue;
+    }
+
+    if (change.type === "added" && !inSprint) {
+      inSprint = true;
+      intervalStart = changeDate;
+      continue;
+    }
+
+    if (change.type === "removed" && inSprint) {
+      if (dateRangesOverlap(intervalStart, changeDate, periodStart, periodEnd)) {
+        return true;
+      }
+      inSprint = false;
+      intervalStart = null;
+    }
+  }
+
+  return inSprint && dateRangesOverlap(intervalStart, new Date(8640000000000000), periodStart, periodEnd);
+}
+
+function dateRangesOverlap(startA, endA, startB, endB) {
+  return startA <= endB && endA >= startB;
+}
+
+function directSprintMatches(issue, sprint) {
+  const values = [
+    issue.sprint?.id,
+    issue.sprint?.name,
+    issue.agile_sprint?.id,
+    issue.agile_sprint?.name,
+    issue.agileSprint?.id,
+    issue.agileSprint?.name,
+  ];
+  return values.some((value) => sprintValueMatches(value, sprint));
+}
+
 async function buildSprintMovement({ redmine, config, filters, period, issues }) {
   if (!filters.sprintId || !period.from || !period.to) {
     return emptyMovement();
   }
 
-  const added = new Map();
-  const removed = new Map();
-
-  for (const issue of issues) {
-    if (isDateWithin(issue.created_on, period)) {
-      added.set(Number(issue.id), summarizeIssue(issue, config.redmine.url));
-    }
+  const sprint = await resolveSprintContext({ redmine, filters });
+  if (!sprint) {
+    return {
+      ...emptyMovement(),
+      error: "Sprint metadata is unavailable.",
+    };
   }
 
   const params = {
@@ -550,37 +820,15 @@ async function buildSprintMovement({ redmine, config, filters, period, issues })
       trackerIds: selectedTrackerIds(filters),
       maxItems: MOVEMENT_SCAN_LIMIT,
     });
-    const detailedIssues = await mapWithConcurrency(candidates, 5, async (issue) => {
-      try {
-        const response = await redmine.get(`/issues/${encodeURIComponent(issue.id)}.json`, { include: "journals" });
-        return response.issue || issue;
-      } catch {
-        return issue;
-      }
-    });
-
-    for (const issue of detailedIssues) {
-      const summary = summarizeIssue(issue, config.redmine.url);
-      for (const change of sprintChanges(issue, filters.sprintId, period)) {
-        if (change.type === "added") {
-          added.set(Number(issue.id), summary);
-        }
-        if (change.type === "removed") {
-          removed.set(Number(issue.id), summary);
-        }
-      }
-    }
-
-    return {
-      addedIssues: [...added.values()].sort(compareIssueId),
-      removedIssues: [...removed.values()].sort(compareIssueId),
-      scannedIssues: candidates.length,
-      error: null,
-    };
+    return buildSprintMovementFromDetailedIssues(
+      await fetchDetailedIssues(redmine, candidates),
+      sprint,
+      period,
+      config.redmine.url,
+    );
   } catch (error) {
     return {
       ...emptyMovement(),
-      addedIssues: [...added.values()].sort(compareIssueId),
       error: error.message,
     };
   }
@@ -595,12 +843,11 @@ function emptyMovement() {
   };
 }
 
-function sprintChanges(issue, sprintId, period) {
+function sprintChangeEvents(issue, sprint, period) {
   const changes = [];
-  const expected = String(sprintId);
 
   for (const journal of issue.journals || []) {
-    if (!isDateWithin(journal.created_on, period)) {
+    if (period && !isDateWithin(journal.created_on, period)) {
       continue;
     }
 
@@ -611,22 +858,48 @@ function sprintChanges(issue, sprintId, period) {
 
       const oldValue = String(detail.old_value ?? detail.oldValue ?? "");
       const newValue = String(detail.new_value ?? detail.newValue ?? "");
+      const oldMatches = sprintValueMatches(oldValue, sprint);
+      const newMatches = sprintValueMatches(newValue, sprint);
 
-      if (newValue === expected && oldValue !== expected) {
-        changes.push({ type: "added" });
+      if (newMatches && !oldMatches) {
+        changes.push({ type: "added", date: journal.created_on });
       }
-      if (oldValue === expected && newValue !== expected) {
-        changes.push({ type: "removed" });
+      if (oldMatches && !newMatches) {
+        changes.push({ type: "removed", date: journal.created_on });
       }
     }
   }
 
-  return changes;
+  return changes.sort((a, b) => parseDate(a.date) - parseDate(b.date));
 }
 
 function isSprintDetail(detail) {
   const name = String(detail.name || detail.prop_key || "");
-  return name === "sprint_id" || name === "sprint";
+  return name === "sprint_id" || name === "sprint" || name === "agile_sprint";
+}
+
+function sprintValueMatches(value, sprint) {
+  const text = normalizeSprintText(value);
+  const id = normalizeSprintText(sprint?.id);
+  const name = normalizeSprintText(sprint?.name);
+
+  if (!text) {
+    return false;
+  }
+
+  if (id && text === id) {
+    return true;
+  }
+
+  if (!name) {
+    return false;
+  }
+
+  return text === name || text.startsWith(`${name} `) || text.startsWith(`${name} (`);
+}
+
+function normalizeSprintText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 async function mapWithConcurrency(items, limit, callback) {
@@ -692,6 +965,7 @@ function resolvePeriod(filters, now) {
 
 function isClosed(issue) {
   const status = String(issue.status?.name || "").trim().toLowerCase();
+  return DONE_STATUSES.includes(status);
   if (["closed", "resolved", "done", "for deploy", "закрито", "закрыта", "закрыто"].includes(status)) {
     return true;
   }

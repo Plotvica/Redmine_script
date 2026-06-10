@@ -12,13 +12,14 @@ const { readDashboards, writeDashboards } = require("./storage/dashboard-store")
 function createApp({ rootDir }) {
   const config = loadConfig(rootDir);
   const redmine = createRedmineClient(config.redmine);
+  const inFlightDashboards = new Map();
 
   const server = http.createServer(async (req, res) => {
     try {
       const requestUrl = new URL(req.url, `http://${req.headers.host}`);
 
       if (requestUrl.pathname.startsWith("/api/")) {
-        await handleApi({ req, requestUrl, res, config, redmine, rootDir });
+        await handleApi({ req, requestUrl, res, config, redmine, rootDir, inFlightDashboards });
         return;
       }
 
@@ -36,7 +37,7 @@ function createApp({ rootDir }) {
   return { server, config };
 }
 
-async function handleApi({ req, requestUrl, res, config, redmine, rootDir }) {
+async function handleApi({ req, requestUrl, res, config, redmine, rootDir, inFlightDashboards }) {
   if (requestUrl.pathname === "/api/health") {
     sendJson(res, 200, {
       ok: true,
@@ -78,7 +79,14 @@ async function handleApi({ req, requestUrl, res, config, redmine, rootDir }) {
 
   if (requestUrl.pathname === "/api/dashboard") {
     const filters = parseDashboardFilters(requestUrl.searchParams);
-    const dashboard = await buildDashboard({ config, redmine, filters });
+    const cacheKey = requestUrl.searchParams.toString();
+    let dashboardPromise = inFlightDashboards.get(cacheKey);
+    if (!dashboardPromise) {
+      dashboardPromise = buildDashboard({ config, redmine, filters })
+        .finally(() => inFlightDashboards.delete(cacheKey));
+      inFlightDashboards.set(cacheKey, dashboardPromise);
+    }
+    const dashboard = await dashboardPromise;
     sendJson(res, 200, dashboard);
     return;
   }
@@ -117,11 +125,13 @@ function parseDashboardFilters(searchParams) {
     to: searchParams.get("to") || "",
     versionId: searchParams.get("version_id") || "",
     sprintId: searchParams.get("sprint_id") || "",
+    sprintName: searchParams.get("sprint_name") || "",
     assigneeId: searchParams.get("assignee_id") || "",
     timeUserIds: parseList(searchParams.get("time_user_ids")),
     authorId: searchParams.get("author_id") || "",
     trackerId: searchParams.get("tracker_id") || "",
     trackerIds: parseList(searchParams.get("tracker_ids")),
+    features: parseList(searchParams.get("features")),
     timeSource: searchParams.get("time_source") || "",
     statusId: searchParams.has("status_id") ? searchParams.get("status_id") : "open",
     priorityId: searchParams.get("priority_id") || "",
