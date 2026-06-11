@@ -12,7 +12,7 @@ export function loadDashboards() {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  return [createDashboardFromTemplate("team-overview", 1)];
+  return [createDashboardFromTemplate("sprint-pm", 1)];
 }
 
 export function saveDashboards(dashboards) {
@@ -86,7 +86,7 @@ export function moveCard(dashboard, cardId, direction) {
 
 export function removeDashboard(dashboards, dashboardId) {
   if (dashboards.length <= 1) {
-    return [createDashboardFromTemplate("team-overview", 1)];
+    return [createDashboardFromTemplate("sprint-pm", 1)];
   }
 
   return dashboards.filter((dashboard) => dashboard.id !== dashboardId);

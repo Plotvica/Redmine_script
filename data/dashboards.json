@@ -1,0 +1,384 @@
+{
+  "updatedAt": "2026-06-11T07:33:12.240Z",
+  "dashboards": [
+    {
+      "id": "4e64e1c3-34f2-478f-9138-33f258cef55f",
+      "name": "Sprint PM",
+      "projectId": "46",
+      "period": {
+        "mode": "sprint",
+        "days": 30,
+        "from": "",
+        "to": "",
+        "versionId": "",
+        "sprintId": "21"
+      },
+      "filters": {
+        "assigneeId": "",
+        "timeUserIds": [],
+        "authorId": "",
+        "trackerId": "",
+        "trackerIds": [],
+        "statusId": "*",
+        "priorityId": "",
+        "customFields": {
+          "cf_28": "E-Commerce"
+        }
+      },
+      "cards": [
+        {
+          "id": "50fb08a5-7f35-4a12-be70-d1c7437892b9",
+          "type": "burndown",
+          "title": "Burndown задач",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [
+                "15",
+                "18"
+              ],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "8076b757-1cfa-4d54-95f9-8ae3c737cdc9",
+          "type": "burndown",
+          "title": "Burndown багів",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "17",
+              "trackerIds": [
+                "17",
+                "24"
+              ],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "3f6558d2-18b6-4d70-a679-5181385663db",
+          "type": "priority",
+          "title": "Пріоритети відкритих багів",
+          "size": "wide",
+          "chartType": "pie",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "17",
+              "trackerIds": [
+                "17",
+                "24"
+              ],
+              "statusId": "open",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "b4f130a1-5c59-425a-a1b6-6ac882d2dba8",
+          "type": "overdue",
+          "title": "Прострочені задачі / баги",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "9d2edec9-da7f-46eb-8278-09fe352d5a92",
+          "type": "stale",
+          "title": "Задачі без руху",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "40069fc8-526f-4f38-ba0e-40310b2e93eb",
+          "type": "effort-table",
+          "title": "Оцінка vs витрачено",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "978a2f25-480c-4090-bd4d-f72e8efe0e16",
+          "type": "sprint-movement",
+          "title": "Додано / вилучено",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "fd865972-b6b1-466e-87f2-08c25b40bc2e",
+          "type": "sprint-timeline",
+          "title": "Лог спринту",
+          "size": "wide",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "b4eb885f-58a7-42a3-a7df-a471ed694c00",
+          "type": "time-user",
+          "title": "Затреканий час по людях",
+          "size": "medium",
+          "chartType": "bar",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        },
+        {
+          "id": "7f9f95c2-45fc-4ea0-bb35-014d014fdd48",
+          "type": "pos-worklog-user",
+          "title": "POS_Worklog по людях",
+          "size": "medium",
+          "chartType": "bar",
+          "settings": {
+            "groupBy": "",
+            "customFieldKey": "",
+            "sort": "value_desc"
+          },
+          "scope": {
+            "projectId": "46",
+            "period": {
+              "mode": "sprint",
+              "days": 30,
+              "from": "",
+              "to": "",
+              "versionId": "",
+              "sprintId": "21"
+            },
+            "filters": {
+              "assigneeId": "",
+              "timeUserIds": [],
+              "authorId": "",
+              "trackerId": "",
+              "trackerIds": [],
+              "statusId": "*",
+              "priorityId": "",
+              "customFields": {
+                "cf_28": "E-Commerce"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

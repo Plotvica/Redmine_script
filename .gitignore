@@ -1,5 +1,6 @@
 .env
-data/
+data/*
+!data/dashboards.json
 redmine-fields.json
 node_modules/
 .DS_Store
