@@ -655,7 +655,7 @@ function startOfDay(date) {
 }
 
 function isIssueDone(issue) {
-  return ["done", "for deploy"].includes(String(issue.status || "").trim().toLowerCase());
+  return ["done", "for deploy", "rejected"].includes(String(issue.status || "").trim().toLowerCase());
 }
 
 function endOfDay(date) {
