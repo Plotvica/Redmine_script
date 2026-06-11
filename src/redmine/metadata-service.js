@@ -1,12 +1,17 @@
+const { createTtlCache } = require("../utils/ttl-cache");
+
 const customFieldCache = new Map();
-const CUSTOM_FIELD_CACHE_MS = 10 * 60 * 1000;
+const CUSTOM_FIELD_CACHE_MS = 60 * 60 * 1000;
+const STATIC_METADATA_CACHE_MS = 24 * 60 * 60 * 1000;
+const PROJECT_METADATA_CACHE_MS = 60 * 60 * 1000;
+const metadataEndpointCaches = new Map();
 
 async function buildMetadata({ redmine, config, projectId }) {
   const warnings = [];
   const [trackers, statuses, priorities, users, customFields, versions, sprints] = await Promise.all([
-    safeCollection(() => redmine.get("/trackers.json"), "trackers", warnings, "Trackers"),
-    safeCollection(() => redmine.get("/issue_statuses.json"), "issue_statuses", warnings, "Issue statuses"),
-    safeCollection(() => redmine.get("/enumerations/issue_priorities.json"), "issue_priorities", warnings, "Issue priorities"),
+    cachedCollection("trackers", STATIC_METADATA_CACHE_MS, () => redmine.get("/trackers.json"), "trackers", warnings, "Trackers"),
+    cachedCollection("issue_statuses", STATIC_METADATA_CACHE_MS, () => redmine.get("/issue_statuses.json"), "issue_statuses", warnings, "Issue statuses"),
+    cachedCollection("issue_priorities", STATIC_METADATA_CACHE_MS, () => redmine.get("/enumerations/issue_priorities.json"), "issue_priorities", warnings, "Issue priorities"),
     fetchUsers({ redmine, config, projectId, warnings }),
     fetchCustomFields({ redmine, config, projectId, warnings }),
     fetchVersions({ redmine, config, projectId, warnings }),
@@ -26,7 +31,14 @@ async function buildMetadata({ redmine, config, projectId }) {
 }
 
 async function fetchCustomFields({ redmine, config, projectId, warnings }) {
-  const apiFields = await safeCollection(() => redmine.get("/custom_fields.json"), "custom_fields", warnings, "Custom fields");
+  const apiFields = await cachedCollection(
+    "custom_fields",
+    PROJECT_METADATA_CACHE_MS,
+    () => redmine.get("/custom_fields.json"),
+    "custom_fields",
+    warnings,
+    "Custom fields",
+  );
   const normalizedApiFields = apiFields
     .filter((field) => field.customized_type === "issue")
     .map(toCustomField);
@@ -161,7 +173,9 @@ function normalizeIssueCustomFieldValue(value) {
 }
 
 async function fetchUsers({ redmine, config, projectId, warnings }) {
-  const users = await safeCollection(
+  const users = await cachedCollection(
+    "users:active",
+    PROJECT_METADATA_CACHE_MS,
     () => redmine.fetchPaginated("/users.json", { status: 1 }, "users", config.redmine.pageLimit),
     null,
     warnings,
@@ -172,7 +186,9 @@ async function fetchUsers({ redmine, config, projectId, warnings }) {
     return users;
   }
 
-  const memberships = await safeCollection(
+  const memberships = await cachedCollection(
+    `memberships:${projectId}`,
+    PROJECT_METADATA_CACHE_MS,
     () => redmine.fetchPaginated(`/projects/${encodeURIComponent(projectId)}/memberships.json`, {}, "memberships", config.redmine.pageLimit),
     null,
     warnings,
@@ -187,7 +203,9 @@ async function fetchVersions({ redmine, config, projectId, warnings }) {
     return [];
   }
 
-  return safeCollection(
+  return cachedCollection(
+    `versions:${projectId}`,
+    PROJECT_METADATA_CACHE_MS,
     () => redmine.fetchPaginated(`/projects/${encodeURIComponent(projectId)}/versions.json`, {}, "versions", config.redmine.pageLimit),
     null,
     warnings,
@@ -200,7 +218,9 @@ async function fetchAgileSprints({ redmine, projectId, warnings }) {
     return [];
   }
 
-  const response = await safeCollection(
+  const response = await cachedCollection(
+    `agile_sprints:${projectId}`,
+    10 * 60 * 1000,
     () => redmine.get(`/projects/${encodeURIComponent(projectId)}/agile_sprints.json`),
     null,
     warnings,
@@ -233,6 +253,32 @@ async function safeCollection(load, key, warnings, label) {
     warnings.push(`${label}: ${error.message}`);
     return [];
   }
+}
+
+async function cachedCollection(cacheKey, ttlMs, load, key, warnings, label) {
+  const cache = metadataCacheFor(ttlMs);
+  const cached = cache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  try {
+    const response = await load();
+    const collection = key ? response[key] || [] : response || [];
+    cache.set(cacheKey, collection);
+    return collection;
+  } catch (error) {
+    warnings.push(`${label}: ${error.message}`);
+    return [];
+  }
+}
+
+function metadataCacheFor(ttlMs) {
+  const key = String(ttlMs);
+  if (!metadataEndpointCaches.has(key)) {
+    metadataEndpointCaches.set(key, createTtlCache({ ttlMs, maxEntries: 100 }));
+  }
+  return metadataEndpointCaches.get(key);
 }
 
 function toOption(item) {

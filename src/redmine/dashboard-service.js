@@ -1,14 +1,19 @@
 const { addDays, parseDate, startOfToday, toDateOnly } = require("../utils/dates");
-const { groupCount, groupHours, roundHours, sumHours } = require("../utils/series");
+const { groupCount, groupHours, parseHours, roundHours, sumHours } = require("../utils/series");
+const { createTtlCache, stableStringify } = require("../utils/ttl-cache");
 
 const MOVEMENT_SCAN_LIMIT = 150;
-const ISSUE_DETAIL_CACHE_MS = 5 * 60 * 1000;
+const ISSUE_DETAIL_CACHE_MS = 30 * 60 * 1000;
 const SPRINT_CACHE_MS = 10 * 60 * 1000;
+const ISSUE_COLLECTION_CACHE_MS = 2 * 60 * 1000;
+const TIME_ENTRIES_CACHE_MS = 5 * 60 * 1000;
 const POS_WORKLOG_TRACKERS = ["POS_Worklog", "Posbox_Worklog"];
 const DONE_STATUSES = ["done", "for deploy"];
 let trackerCachePromise = null;
 const issueDetailCache = new Map();
 const sprintCache = new Map();
+const issueCollectionCache = createTtlCache({ ttlMs: ISSUE_COLLECTION_CACHE_MS, maxEntries: 100 });
+const timeEntriesCache = createTtlCache({ ttlMs: TIME_ENTRIES_CACHE_MS, maxEntries: 50 });
 
 async function buildDashboard({ config, redmine, filters }) {
   const now = new Date();
@@ -407,23 +412,32 @@ function normalizeCustomFieldValue(value) {
 
 async function fetchIssueCollection({ redmine, config, params, trackerIds = [], maxItems = Infinity }) {
   const ids = normalizeIdList(trackerIds);
+  const cacheKey = stableStringify({
+    endpoint: "/issues.json",
+    ids,
+    maxItems: String(maxItems),
+    pageLimit: config.redmine.pageLimit,
+    params,
+  });
 
-  if (!ids.length) {
-    return redmine.fetchPaginated("/issues.json", params, "issues", config.redmine.pageLimit, maxItems);
-  }
+  return issueCollectionCache.getOrSet(cacheKey, async () => {
+    if (!ids.length) {
+      return redmine.fetchPaginated("/issues.json", params, "issues", config.redmine.pageLimit, maxItems);
+    }
 
-  const batches = [];
-  for (const trackerId of ids) {
-    batches.push(await redmine.fetchPaginated(
-      "/issues.json",
-      { ...params, tracker_id: trackerId },
-      "issues",
-      config.redmine.pageLimit,
-      maxItems,
-    ));
-  }
+    const batches = [];
+    for (const trackerId of ids) {
+      batches.push(await redmine.fetchPaginated(
+        "/issues.json",
+        { ...params, tracker_id: trackerId },
+        "issues",
+        config.redmine.pageLimit,
+        maxItems,
+      ));
+    }
 
-  return uniqueIssues(batches.flat()).sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on));
+    return uniqueIssues(batches.flat()).sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on));
+  });
 }
 
 function normalizeFeatureSet(features = []) {
@@ -504,12 +518,19 @@ async function fetchTimeEntries({ redmine, config, projectId, fromDate, now, per
   }
 
   try {
-    const timeEntries = await redmine.fetchPaginated(
-      "/time_entries.json",
-      timeParams,
-      "time_entries",
-      config.redmine.pageLimit,
-    );
+    const cacheKey = stableStringify({
+      endpoint: "/time_entries.json",
+      pageLimit: config.redmine.pageLimit,
+      params: timeParams,
+    });
+    const timeEntries = await timeEntriesCache.getOrSet(cacheKey, () => (
+      redmine.fetchPaginated(
+        "/time_entries.json",
+        timeParams,
+        "time_entries",
+        config.redmine.pageLimit,
+      )
+    ));
     const issueIds = new Set((issues || []).map((issue) => Number(issue.id)));
     const filteredEntries = issueIds.size
       ? timeEntries.filter((entry) => issueIds.has(Number(entry.issue?.id)))
@@ -532,12 +553,12 @@ function buildIssueEffortTable(issues, timeEntries, baseUrl) {
     if (!issueId) {
       continue;
     }
-    spentByIssue.set(issueId, (spentByIssue.get(issueId) || 0) + Number(entry.hours || 0));
+    spentByIssue.set(issueId, (spentByIssue.get(issueId) || 0) + parseHours(entry.hours));
   }
 
   return issues
     .map((issue) => {
-      const estimatedHours = roundHours(Number(issue.estimated_hours || 0));
+      const estimatedHours = roundHours(parseHours(issue.estimated_hours));
       const spentHours = roundHours(spentByIssue.get(Number(issue.id)) || 0);
       return {
         ...summarizeIssue(issue, baseUrl),
@@ -567,7 +588,7 @@ function buildTimeDetails(timeEntries, issues, baseUrl) {
       project: entry.project?.name || "",
       activity: entry.activity?.name || "Без активності",
       spentOn: entry.spent_on || "",
-      hours: roundHours(Number(entry.hours || 0)),
+      hours: roundHours(parseHours(entry.hours)),
       comments: entry.comments || "",
     };
 
@@ -1012,7 +1033,7 @@ function summarizeIssue(issue, baseUrl) {
     updatedOn: issue.updated_on || null,
     closedOn: issue.closed_on || null,
     doneRatio: Number(issue.done_ratio || 0),
-    estimatedHours: roundHours(Number(issue.estimated_hours || 0)),
+    estimatedHours: roundHours(parseHours(issue.estimated_hours)),
     customFields: Object.fromEntries(
       (issue.custom_fields || []).map((field) => [
         `cf_${field.id}`,

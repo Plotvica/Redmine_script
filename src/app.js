@@ -8,18 +8,28 @@ const { buildMetadata } = require("./redmine/metadata-service");
 const { serveStatic } = require("./http/static");
 const { sendJson } = require("./http/respond");
 const { readDashboards, writeDashboards } = require("./storage/dashboard-store");
+const { createTtlCache, stableSearchParamsKey } = require("./utils/ttl-cache");
+
+const PROJECTS_CACHE_MS = 60 * 60 * 1000;
+const METADATA_CACHE_MS = 60 * 60 * 1000;
+const DASHBOARD_CACHE_MS = 2 * 60 * 1000;
 
 function createApp({ rootDir }) {
   const config = loadConfig(rootDir);
   const redmine = createRedmineClient(config.redmine);
   const inFlightDashboards = new Map();
+  const caches = {
+    projects: createTtlCache({ ttlMs: PROJECTS_CACHE_MS, maxEntries: 2 }),
+    metadata: createTtlCache({ ttlMs: METADATA_CACHE_MS, maxEntries: 50 }),
+    dashboards: createTtlCache({ ttlMs: DASHBOARD_CACHE_MS, maxEntries: 100 }),
+  };
 
   const server = http.createServer(async (req, res) => {
     try {
       const requestUrl = new URL(req.url, `http://${req.headers.host}`);
 
       if (requestUrl.pathname.startsWith("/api/")) {
-        await handleApi({ req, requestUrl, res, config, redmine, rootDir, inFlightDashboards });
+        await handleApi({ req, requestUrl, res, config, redmine, rootDir, inFlightDashboards, caches });
         return;
       }
 
@@ -37,7 +47,7 @@ function createApp({ rootDir }) {
   return { server, config };
 }
 
-async function handleApi({ req, requestUrl, res, config, redmine, rootDir, inFlightDashboards }) {
+async function handleApi({ req, requestUrl, res, config, redmine, rootDir, inFlightDashboards, caches }) {
   if (requestUrl.pathname === "/api/health") {
     sendJson(res, 200, {
       ok: true,
@@ -64,25 +74,36 @@ async function handleApi({ req, requestUrl, res, config, redmine, rootDir, inFli
   }
 
   if (requestUrl.pathname === "/api/projects") {
-    const projects = await redmine.fetchPaginated("/projects.json", {}, "projects", config.redmine.pageLimit);
-    projects.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const projects = await caches.projects.getOrSet("all", async () => {
+      const loadedProjects = await redmine.fetchPaginated("/projects.json", {}, "projects", config.redmine.pageLimit);
+      return loadedProjects.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    });
     sendJson(res, 200, { projects });
     return;
   }
 
   if (requestUrl.pathname === "/api/metadata") {
     const projectId = requestUrl.searchParams.get("project_id") || "";
-    const metadata = await buildMetadata({ redmine, config, projectId });
+    const metadata = await caches.metadata.getOrSet(projectId || "__all__", () => (
+      buildMetadata({ redmine, config, projectId })
+    ));
     sendJson(res, 200, metadata);
     return;
   }
 
   if (requestUrl.pathname === "/api/dashboard") {
     const filters = parseDashboardFilters(requestUrl.searchParams);
-    const cacheKey = requestUrl.searchParams.toString();
+    const cacheKey = stableSearchParamsKey(requestUrl.searchParams);
+    const cachedDashboard = caches.dashboards.get(cacheKey);
+    if (cachedDashboard !== undefined) {
+      sendJson(res, 200, await cachedDashboard);
+      return;
+    }
+
     let dashboardPromise = inFlightDashboards.get(cacheKey);
     if (!dashboardPromise) {
       dashboardPromise = buildDashboard({ config, redmine, filters })
+        .then((dashboard) => caches.dashboards.set(cacheKey, dashboard))
         .finally(() => inFlightDashboards.delete(cacheKey));
       inFlightDashboards.set(cacheKey, dashboardPromise);
     }
