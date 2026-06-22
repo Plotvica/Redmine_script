@@ -1,6 +1,8 @@
 const { addDays, parseDate, startOfToday, toDateOnly } = require("../utils/dates");
 const { groupCount, groupHours, parseHours, roundHours, sumHours } = require("../utils/series");
 const { createTtlCache, stableStringify } = require("../utils/ttl-cache");
+const { getAgileSprintIds } = require("./agile-membership-service");
+const { readSprintRollovers } = require("../storage/sprint-rollover-store");
 
 const MOVEMENT_SCAN_LIMIT = 150;
 const ISSUE_DETAIL_CACHE_MS = 30 * 60 * 1000;
@@ -9,13 +11,19 @@ const ISSUE_COLLECTION_CACHE_MS = 2 * 60 * 1000;
 const TIME_ENTRIES_CACHE_MS = 5 * 60 * 1000;
 const POS_WORKLOG_TRACKERS = ["POS_Worklog", "Posbox_Worklog"];
 const DONE_STATUSES = ["done", "for deploy", "rejected"];
+const PRE_SPRINT_TERMINAL_STATUSES = ["done", "rejected"];
 let trackerCachePromise = null;
 const issueDetailCache = new Map();
 const sprintCache = new Map();
 const issueCollectionCache = createTtlCache({ ttlMs: ISSUE_COLLECTION_CACHE_MS, maxEntries: 100 });
 const timeEntriesCache = createTtlCache({ ttlMs: TIME_ENTRIES_CACHE_MS, maxEntries: 50 });
 
-async function buildDashboard({ config, redmine, filters }) {
+function clearDashboardDataCaches() {
+  issueDetailCache.clear();
+  issueCollectionCache.clear();
+}
+
+async function buildDashboard({ rootDir, config, redmine, filters }) {
   const now = new Date();
   const period = resolvePeriod(filters, now);
   const isPosWorklogSource = filters.timeSource === "pos_worklog";
@@ -35,12 +43,17 @@ async function buildDashboard({ config, redmine, filters }) {
     "time-project",
     "pos-worklog-user",
   ]);
+  const sprintContext = filters.sprintId && !isPosWorklogSource
+    ? await resolveSprintContext({ redmine, filters })
+    : null;
   const issueParams = {
     sort: "updated_on:desc",
   };
 
   if (isPosWorklogSource) {
     issueParams.status_id = "*";
+  } else if (filters.statusId === "*" && sprintContext?.isLatest) {
+    issueParams.status_id = "open";
   } else if (filters.statusId && filters.statusId !== "open") {
     issueParams.status_id = filters.statusId;
   }
@@ -74,19 +87,33 @@ async function buildDashboard({ config, redmine, filters }) {
   }
 
   const trackerIds = await resolveTrackerIds({ redmine, filters });
-  const rawIssues = await fetchIssueCollection({
+  const primaryIssues = await fetchIssueCollection({
     redmine,
     config,
     params: issueParams,
     trackerIds,
   });
+  const recentlyClosedIssues = sprintContext?.isLatest && filters.statusId === "*"
+    ? await fetchRecentlyClosedSprintIssues({
+        redmine,
+        config,
+        params: issueParams,
+        trackerIds,
+        period,
+      })
+    : [];
+  const rawIssues = uniqueIssues([...primaryIssues, ...recentlyClosedIssues])
+    .sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on));
   const sprintScope = filters.sprintId && !isPosWorklogSource
     ? await buildSprintScope({
         redmine,
+        rootDir,
         config,
         filters,
         period,
         issues: rawIssues,
+        includeMovement: needsMovement,
+        sprintContext,
       })
     : null;
   const issues = sprintScope?.issues || rawIssues;
@@ -412,6 +439,23 @@ function normalizeCustomFieldValue(value) {
 
 async function fetchIssueCollection({ redmine, config, params, trackerIds = [], maxItems = Infinity }) {
   const ids = normalizeIdList(trackerIds);
+  if (maxItems === Infinity && ids.length !== 1) {
+    const baseCacheKey = stableStringify({
+      endpoint: "/issues.json",
+      maxItems: "Infinity",
+      pageLimit: config.redmine.pageLimit,
+      params,
+    });
+    const allIssues = await issueCollectionCache.getOrSet(baseCacheKey, () => (
+      redmine.fetchPaginated("/issues.json", params, "issues", config.redmine.pageLimit)
+    ));
+    if (!ids.length) {
+      return allIssues;
+    }
+    const selectedIds = new Set(ids.map(Number));
+    return allIssues.filter((issue) => selectedIds.has(Number(issue.tracker?.id)));
+  }
+
   const cacheKey = stableStringify({
     endpoint: "/issues.json",
     ids,
@@ -425,16 +469,15 @@ async function fetchIssueCollection({ redmine, config, params, trackerIds = [], 
       return redmine.fetchPaginated("/issues.json", params, "issues", config.redmine.pageLimit, maxItems);
     }
 
-    const batches = [];
-    for (const trackerId of ids) {
-      batches.push(await redmine.fetchPaginated(
+    const batches = await Promise.all(ids.map((trackerId) => (
+      redmine.fetchPaginated(
         "/issues.json",
         { ...params, tracker_id: trackerId },
         "issues",
         config.redmine.pageLimit,
         maxItems,
-      ));
-    }
+      )
+    )));
 
     return uniqueIssues(batches.flat()).sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on));
   });
@@ -612,8 +655,17 @@ function buildTimeDetails(timeEntries, issues, baseUrl) {
   return { byUser };
 }
 
-async function buildSprintScope({ redmine, config, filters, period, issues }) {
-  const sprint = await resolveSprintContext({ redmine, filters });
+async function buildSprintScope({
+  redmine,
+  rootDir,
+  config,
+  filters,
+  period,
+  issues,
+  includeMovement = false,
+  sprintContext = null,
+}) {
+  const sprint = sprintContext || await resolveSprintContext({ redmine, filters });
   if (!sprint) {
     return {
       issues,
@@ -623,12 +675,57 @@ async function buildSprintScope({ redmine, config, filters, period, issues }) {
   }
 
   try {
-    const detailedIssues = await fetchDetailedIssues(redmine, issues);
+    const rolloverStore = await readSprintRollovers(rootDir);
+    const rolloverEvents = rolloverStore.events || [];
+
+    if (sprint.isLatest) {
+      const sprintIds = await getAgileSprintIds({
+        rootDir,
+        redmine,
+        issues,
+        concurrency: config.redmine.requestConcurrency,
+      });
+      const currentIssues = issues
+        .filter((issue) => sprintIds.get(Number(issue.id)) === String(sprint.id))
+        .filter((issue) => !wasCompletedBeforeSprint(issue, period))
+        .sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on));
+      const recordedIssueIds = rolloverIssueIds(rolloverEvents, sprint.id);
+      const movementDetailIssues = includeMovement
+        ? currentIssues.filter((issue) => !recordedIssueIds.has(Number(issue.id)))
+        : [];
+      const detailedMovementIssues = includeMovement
+        ? await fetchDetailedIssues(redmine, movementDetailIssues, config.redmine.requestConcurrency)
+        : [];
+      const detailedById = new Map(detailedMovementIssues.map((issue) => [Number(issue.id), issue]));
+      const movementIssues = currentIssues.map((issue) => detailedById.get(Number(issue.id)) || issue);
+
+      return {
+        issues: currentIssues,
+        movement: includeMovement
+          ? buildSprintMovementFromDetailedIssues(
+              movementIssues,
+              sprint,
+              period,
+              config.redmine.url,
+              rolloverEvents,
+            )
+          : emptyMovement(),
+        error: null,
+      };
+    }
+
+    const detailedIssues = await fetchDetailedIssues(redmine, issues, config.redmine.requestConcurrency);
     return {
       issues: detailedIssues
-        .filter((issue) => isIssueInSprintHistory(issue, sprint, period))
+        .filter((issue) => isIssueInSprintHistory(issue, sprint, period, rolloverEvents))
         .sort((a, b) => parseDate(b.updated_on) - parseDate(a.updated_on)),
-      movement: buildSprintMovementFromDetailedIssues(detailedIssues, sprint, period, config.redmine.url),
+      movement: buildSprintMovementFromDetailedIssues(
+        detailedIssues,
+        sprint,
+        period,
+        config.redmine.url,
+        rolloverEvents,
+      ),
       error: null,
     };
   } catch (error) {
@@ -643,23 +740,59 @@ async function buildSprintScope({ redmine, config, filters, period, issues }) {
   }
 }
 
+async function fetchRecentlyClosedSprintIssues({
+  redmine,
+  config,
+  params,
+  trackerIds,
+  period,
+}) {
+  const from = parseDate(period.from);
+  const today = startOfToday();
+  if (from.getTime() <= 0 || from > today) {
+    return [];
+  }
+
+  const to = parseDate(period.to) < today ? period.to : toDateOnly(today);
+  return fetchIssueCollection({
+    redmine,
+    config,
+    params: {
+      ...params,
+      status_id: "closed",
+      updated_on: `><${period.from}|${to}`,
+    },
+    trackerIds,
+  });
+}
+
 async function resolveSprintContext({ redmine, filters }) {
   if (!filters.sprintId) {
     return null;
   }
 
-  const sprint = {
+  const fallbackSprint = {
     id: String(filters.sprintId),
     name: filters.sprintName || "",
   };
 
-  if (sprint.name || !filters.projectId) {
-    return sprint;
+  if (!filters.projectId) {
+    return fallbackSprint;
   }
 
   const sprints = await fetchProjectSprints(redmine, filters.projectId);
-  const matched = sprints.find((item) => String(item.id) === sprint.id);
-  return matched ? { ...sprint, name: matched.name || "" } : sprint;
+  const sorted = [...sprints].sort(compareSprints);
+  const matched = sorted.find((item) => String(item.id) === fallbackSprint.id);
+  if (!matched) {
+    return fallbackSprint;
+  }
+
+  return {
+    ...matched,
+    id: String(matched.id),
+    name: matched.name || fallbackSprint.name,
+    isLatest: String(sorted.at(-1)?.id || "") === String(matched.id),
+  };
 }
 
 async function fetchProjectSprints(redmine, projectId) {
@@ -679,8 +812,8 @@ async function fetchProjectSprints(redmine, projectId) {
   }
 }
 
-async function fetchDetailedIssues(redmine, issues) {
-  return mapWithConcurrency(issues, 2, (issue) => fetchDetailedIssue(redmine, issue));
+async function fetchDetailedIssues(redmine, issues, concurrency = 2) {
+  return mapWithConcurrency(issues, Math.max(2, concurrency), (issue) => fetchDetailedIssue(redmine, issue));
 }
 
 async function fetchDetailedIssue(redmine, issue) {
@@ -704,22 +837,25 @@ async function fetchDetailedIssue(redmine, issue) {
   return detailedIssue;
 }
 
-function buildSprintMovementFromDetailedIssues(issues, sprint, period, baseUrl) {
+function buildSprintMovementFromDetailedIssues(issues, sprint, period, baseUrl, rolloverEvents = []) {
   const added = new Map();
   const removed = new Map();
 
   for (const issue of issues) {
     const summary = summarizeIssue(issue, baseUrl);
-    const allChanges = sprintChangeEvents(issue, sprint);
+    const allChanges = sprintChangeEvents(issue, sprint, null, rolloverEvents);
 
     if (
       isDateWithin(issue.created_on, period)
-      && (isIssueInSprintHistory(issue, sprint, period) || allChanges.length)
+      && (isIssueInSprintHistory(issue, sprint, period, rolloverEvents) || allChanges.length)
     ) {
       added.set(Number(issue.id), summary);
     }
 
-    for (const change of allChanges.filter((item) => isDateWithin(item.date, period))) {
+    for (const change of allChanges.filter((item) => (
+      isDateWithin(item.date, period)
+      || (item.source === "rollover" && changeBelongsToSprintStart(item, period))
+    ))) {
       if (change.type === "added") {
         added.set(Number(issue.id), summary);
       }
@@ -737,8 +873,8 @@ function buildSprintMovementFromDetailedIssues(issues, sprint, period, baseUrl) 
   };
 }
 
-function isIssueInSprintHistory(issue, sprint, period) {
-  const changes = sprintChangeEvents(issue, sprint);
+function isIssueInSprintHistory(issue, sprint, period, rolloverEvents = []) {
+  const changes = sprintChangeEvents(issue, sprint, null, rolloverEvents);
   if (changes.length) {
     return sprintMembershipOverlapsPeriod(changes, period);
   }
@@ -864,7 +1000,7 @@ function emptyMovement() {
   };
 }
 
-function sprintChangeEvents(issue, sprint, period) {
+function sprintChangeEvents(issue, sprint, period, rolloverEvents = []) {
   const changes = [];
 
   for (const journal of issue.journals || []) {
@@ -891,7 +1027,55 @@ function sprintChangeEvents(issue, sprint, period) {
     }
   }
 
+  for (const event of rolloverEvents || []) {
+    if (!event.issueIds?.includes(Number(issue.id))) {
+      continue;
+    }
+    if (String(event.targetSprintId) === String(sprint.id)) {
+      changes.push({ type: "added", date: event.movedAt, source: "rollover" });
+    }
+    if (String(event.sourceSprintId) === String(sprint.id)) {
+      changes.push({ type: "removed", date: event.movedAt, source: "rollover" });
+    }
+  }
+
   return changes.sort((a, b) => parseDate(a.date) - parseDate(b.date));
+}
+
+function wasCompletedBeforeSprint(issue, period) {
+  const status = String(issue.status?.name || "").trim().toLowerCase();
+  if (!PRE_SPRINT_TERMINAL_STATUSES.includes(status)) {
+    return false;
+  }
+  const completedOn = completionDate(issue);
+  const sprintStart = parseDate(period.from);
+  return completedOn.getTime() > 0
+    && sprintStart.getTime() > 0
+    && completedOn < sprintStart;
+}
+
+function rolloverIssueIds(events, targetSprintId) {
+  return new Set(
+    (events || [])
+      .filter((event) => String(event.targetSprintId) === String(targetSprintId))
+      .flatMap((event) => event.issueIds || [])
+      .map(Number),
+  );
+}
+
+function changeBelongsToSprintStart(change, period) {
+  const changeDate = parseDate(change.date);
+  const start = parseDate(period.from);
+  return change.type === "added"
+    && changeDate.getTime() > 0
+    && start.getTime() > 0
+    && changeDate <= start;
+}
+
+function compareSprints(left, right) {
+  return String(left.start_date || left.startDate || "").localeCompare(String(right.start_date || right.startDate || ""))
+    || String(left.end_date || left.endDate || "").localeCompare(String(right.end_date || right.endDate || ""))
+    || Number(left.id) - Number(right.id);
 }
 
 function isSprintDetail(detail) {
@@ -1048,4 +1232,4 @@ function summarizeIssue(issue, baseUrl) {
   };
 }
 
-module.exports = { buildDashboard };
+module.exports = { buildDashboard, clearDashboardDataCaches };

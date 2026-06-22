@@ -3,8 +3,12 @@ const { URL } = require("node:url");
 
 const { loadConfig } = require("./config/env");
 const { createRedmineClient } = require("./redmine/client");
-const { buildDashboard } = require("./redmine/dashboard-service");
+const { buildDashboard, clearDashboardDataCaches } = require("./redmine/dashboard-service");
 const { buildMetadata } = require("./redmine/metadata-service");
+const {
+  executeSprintRollover,
+  previewSprintRollover,
+} = require("./redmine/sprint-rollover-service");
 const { serveStatic } = require("./http/static");
 const { sendJson } = require("./http/respond");
 const { readDashboards, writeDashboards } = require("./storage/dashboard-store");
@@ -102,13 +106,44 @@ async function handleApi({ req, requestUrl, res, config, redmine, rootDir, inFli
 
     let dashboardPromise = inFlightDashboards.get(cacheKey);
     if (!dashboardPromise) {
-      dashboardPromise = buildDashboard({ config, redmine, filters })
+      dashboardPromise = buildDashboard({ rootDir, config, redmine, filters })
         .then((dashboard) => caches.dashboards.set(cacheKey, dashboard))
         .finally(() => inFlightDashboards.delete(cacheKey));
       inFlightDashboards.set(cacheKey, dashboardPromise);
     }
     const dashboard = await dashboardPromise;
     sendJson(res, 200, dashboard);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/sprint-rollover/preview" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const preview = await previewSprintRollover({
+      rootDir,
+      redmine,
+      config,
+      projectId: body.projectId,
+      targetSprintId: body.targetSprintId,
+      customFields: normalizeCustomFields(body.customFields),
+    });
+    sendJson(res, 200, preview);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/sprint-rollover/execute" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const result = await executeSprintRollover({
+      rootDir,
+      redmine,
+      config,
+      projectId: body.projectId,
+      targetSprintId: body.targetSprintId,
+      customFields: normalizeCustomFields(body.customFields),
+      issueIds: body.issueIds,
+    });
+    caches.dashboards.clear();
+    clearDashboardDataCaches();
+    sendJson(res, 200, result);
     return;
   }
 
@@ -175,6 +210,18 @@ function parseList(value) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeCustomFields(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, fieldValue]) => /^cf_\d+$/.test(key) && fieldValue !== "")
+      .map(([key, fieldValue]) => [key, String(fieldValue)]),
+  );
 }
 
 function clampNumber(value, min, max, fallback) {

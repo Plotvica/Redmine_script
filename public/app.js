@@ -4,6 +4,8 @@ import {
   fetchMetadata,
   fetchProjects,
   fetchSavedDashboards,
+  executeSprintRollover,
+  previewSprintRollover,
   saveDashboardsToServer,
 } from "./js/api.js";
 import { elements } from "./js/dom.js";
@@ -27,6 +29,12 @@ import {
   syncModeButtons,
 } from "./js/render/controls.js";
 import { renderDashboardData, renderLoading, renderSetupError } from "./js/render/dashboard-view.js";
+import { openSprintRolloverPreview } from "./js/render/sprint-rollover.js";
+import {
+  buildMarkdownReport,
+  downloadMarkdownReport,
+  markdownFilename,
+} from "./js/export/markdown-report.js";
 
 const state = {
   dashboards: loadDashboards(),
@@ -69,6 +77,8 @@ elements.deleteDashboardButton.addEventListener("click", async () => {
 });
 elements.viewModeButton.addEventListener("click", () => setMode("view"));
 elements.editModeButton.addEventListener("click", () => setMode("edit"));
+elements.exportMarkdownButton.addEventListener("click", exportCurrentDashboard);
+elements.sprintRolloverButton.addEventListener("click", handleSprintRollover);
 elements.refreshButton.addEventListener("click", () => loadCurrentDashboard());
 elements.quickProjectSelect.addEventListener("change", handleQuickScopeChange);
 elements.quickUnitSelect.addEventListener("change", handleQuickScopeChange);
@@ -131,6 +141,7 @@ async function saveCurrentDashboard() {
 async function loadCurrentDashboard() {
   const dashboard = getCurrentDashboard(state.dashboards, state.currentDashboardId);
   state.currentDashboardId = dashboard.id;
+  elements.exportMarkdownButton.disabled = true;
   await ensureMetadataForDashboard(dashboard);
   syncDashboardForm(elements, dashboard);
   renderQuickScopeControls(dashboard);
@@ -142,9 +153,102 @@ async function loadCurrentDashboard() {
     state.cardData = await fetchCardData(dashboard);
     state.dashboardData = firstDashboardData(state.cardData);
     renderDashboardData(elements, dashboard, state.dashboardData, { mode: state.mode, cardData: state.cardData });
+    elements.exportMarkdownButton.disabled = false;
   } catch (error) {
     renderSetupError(elements, error.message);
+    elements.exportMarkdownButton.disabled = true;
   }
+}
+
+function exportCurrentDashboard() {
+  const dashboard = getCurrentDashboard(state.dashboards, state.currentDashboardId);
+  if (!dashboard || !state.cardData) {
+    return;
+  }
+
+  const markdown = buildMarkdownReport({
+    dashboard,
+    cardData: state.cardData,
+    context: currentReportContext(),
+    projects: state.projects,
+    metadataByProject: Object.fromEntries(state.metadataCache),
+  });
+  downloadMarkdownReport(markdown, markdownFilename(dashboard.name));
+}
+
+function currentReportContext() {
+  const period = state.dashboardData?.filters?.period;
+  return {
+    project: selectedOptionText(elements.quickProjectSelect, "Усі проєкти"),
+    unit: selectedOptionText(elements.quickUnitSelect, "Усі Unit"),
+    sprint: selectedOptionText(elements.quickSprintSelect, "Усі sprint"),
+    period: period?.from && period?.to ? `${period.from} — ${period.to}` : period?.label || "",
+    generatedAt: state.dashboardData?.generatedAt || "",
+  };
+}
+
+function selectedOptionText(select, fallback) {
+  return select?.selectedOptions?.[0]?.textContent?.trim() || fallback;
+}
+
+async function handleSprintRollover() {
+  const dashboard = getCurrentDashboard(state.dashboards, state.currentDashboardId);
+  const scope = getQuickScope(dashboard);
+  if (!scope.projectId || !scope.unitFieldKey || !scope.unitValue || !scope.sprintId) {
+    return;
+  }
+
+  const requestScope = {
+    projectId: scope.projectId,
+    targetSprintId: scope.sprintId,
+    customFields: {
+      [scope.unitFieldKey]: scope.unitValue,
+    },
+  };
+
+  setRolloverLoading(true);
+  try {
+    const preview = await previewSprintRollover(requestScope);
+    openSprintRolloverPreview(preview, {
+      projectName: selectedOptionText(elements.quickProjectSelect, "Проєкт"),
+      unitName: selectedOptionText(elements.quickUnitSelect, "Unit"),
+      onConfirm: async (issueIds) => {
+        const result = await executeSprintRollover({ ...requestScope, issueIds });
+        await loadCurrentDashboard();
+        return result;
+      },
+    });
+  } catch (error) {
+    showActionError(error.message);
+  } finally {
+    setRolloverLoading(false);
+  }
+}
+
+function setRolloverLoading(loading) {
+  elements.sprintRolloverButton.textContent = loading
+    ? "Шукаю задачі..."
+    : "Перенести з попереднього Sprint";
+  elements.sprintRolloverButton.disabled = loading;
+  if (!loading) {
+    syncRolloverButton();
+  }
+}
+
+function syncRolloverButton() {
+  const dashboard = getCurrentDashboard(state.dashboards, state.currentDashboardId);
+  const scope = getQuickScope(dashboard);
+  elements.sprintRolloverButton.disabled = !(
+    scope.projectId
+    && scope.unitFieldKey
+    && scope.unitValue
+    && scope.sprintId
+  );
+}
+
+function showActionError(message) {
+  elements.warnings.hidden = false;
+  elements.warnings.textContent = message || "Не вдалося підготувати перенесення задач.";
 }
 
 function renderStaticControls() {
@@ -176,6 +280,7 @@ function renderQuickScopeControls(dashboard) {
 
   elements.quickUnitSelect.disabled = !unitField;
   elements.quickSprintSelect.disabled = !scope.projectId || !(metadata.sprints || []).length;
+  syncRolloverButton();
 }
 
 function fillSelect(select, items, emptyLabel, value) {
@@ -437,16 +542,13 @@ async function fetchCardData(dashboard) {
     entry.cardTypes.add(card.type);
   }
 
-  const loaded = [];
-  for (const entry of scopedDashboards.values()) {
-    loaded.push({
-      cardIds: entry.cardIds,
-      data: await fetchDashboard({
-        ...entry.dashboard,
-        features: [...entry.cardTypes],
-      }),
-    });
-  }
+  const loaded = await Promise.all([...scopedDashboards.values()].map(async (entry) => ({
+    cardIds: entry.cardIds,
+    data: await fetchDashboard({
+      ...entry.dashboard,
+      features: [...entry.cardTypes],
+    }),
+  })));
   const entries = loaded.flatMap((entry) => entry.cardIds.map((cardId) => [cardId, entry.data]));
 
   return Object.fromEntries(entries);

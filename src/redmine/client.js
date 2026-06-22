@@ -23,17 +23,34 @@ function createRedmineClient({
     return schedule(() => requestJson(requestUrl));
   }
 
-  async function requestJson(requestUrl) {
+  async function put(endpoint, body) {
+    const requestUrl = new URL(`${baseUrl}${endpoint}`);
+    return schedule(() => requestJson(requestUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  async function requestJson(requestUrl, options = {}) {
     for (let attempt = 0; attempt <= requestRetries; attempt += 1) {
       const response = await fetch(requestUrl, {
+        ...options,
         headers: {
           "Accept": "application/json",
           "X-Redmine-API-Key": apiKey,
+          ...options.headers,
         },
       });
 
       if (response.ok) {
-        return response.json();
+        if (response.status === 204) {
+          return {};
+        }
+        const text = await response.text();
+        return text ? JSON.parse(text) : {};
       }
 
       const text = await response.text();
@@ -72,7 +89,7 @@ function createRedmineClient({
     return items;
   }
 
-  return { fetchPaginated, get };
+  return { fetchPaginated, get, put };
 }
 
 function createRequestQueue({ concurrency, delayMs }) {

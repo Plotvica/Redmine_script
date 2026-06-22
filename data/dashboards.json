@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-11T07:33:12.240Z",
+  "updatedAt": "2026-06-22T18:55:22.340Z",
   "dashboards": [
     {
       "id": "4e64e1c3-34f2-478f-9138-33f258cef55f",
@@ -11,7 +11,7 @@
         "from": "",
         "to": "",
         "versionId": "",
-        "sprintId": "21"
+        "sprintId": "22"
       },
       "filters": {
         "assigneeId": "",
@@ -22,7 +22,7 @@
         "statusId": "*",
         "priorityId": "",
         "customFields": {
-          "cf_28": "E-Commerce"
+          "cf_28": "Core"
         }
       },
       "cards": [
@@ -44,7 +44,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -58,7 +58,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -81,7 +81,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -95,7 +95,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -119,7 +119,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -133,7 +133,7 @@
               "statusId": "open",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -156,7 +156,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -167,7 +167,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -190,7 +190,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -201,7 +201,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -224,7 +224,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -235,7 +235,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -258,7 +258,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -269,7 +269,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -292,7 +292,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -303,7 +303,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -327,7 +327,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -338,7 +338,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }
@@ -362,7 +362,7 @@
               "from": "",
               "to": "",
               "versionId": "",
-              "sprintId": "21"
+              "sprintId": "22"
             },
             "filters": {
               "assigneeId": "",
@@ -373,7 +373,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "E-Commerce"
+                "cf_28": "Core"
               }
             }
           }

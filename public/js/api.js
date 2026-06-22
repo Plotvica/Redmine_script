@@ -105,6 +105,22 @@ export async function saveDashboardsToServer(dashboards) {
   });
 }
 
+export async function previewSprintRollover(scope) {
+  return requestJson("/api/sprint-rollover/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scope),
+  });
+}
+
+export async function executeSprintRollover(scope) {
+  return requestJson("/api/sprint-rollover/execute", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scope),
+  });
+}
+
 async function requestJson(url, options) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));

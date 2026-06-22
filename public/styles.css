@@ -357,6 +357,7 @@ button {
 
 .topbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
@@ -391,6 +392,11 @@ button {
   border-radius: 7px;
   background: var(--surface);
   color: var(--text);
+}
+
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .eyebrow {
@@ -1220,6 +1226,139 @@ button {
   padding: 0 12px;
 }
 
+.sprint-rollover-modal {
+  width: min(1040px, 100%);
+}
+
+.rollover-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.rollover-sprint {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 14px;
+}
+
+.rollover-sprint span,
+.rollover-sprint small,
+.rollover-context,
+.rollover-note {
+  color: var(--muted);
+}
+
+.rollover-sprint strong {
+  font-size: 18px;
+}
+
+.rollover-arrow {
+  color: var(--accent);
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.rollover-context,
+.rollover-note {
+  margin: 0;
+}
+
+.rollover-note {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  line-height: 1.5;
+}
+
+.rollover-content {
+  max-height: 430px;
+  overflow: auto;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-actions button,
+.primary-button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 14px;
+}
+
+.modal-actions .primary-button,
+.primary-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+}
+
+.modal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.rollover-error {
+  border: 1px solid #f0aaa5;
+  border-radius: 7px;
+  background: #fff4f2;
+  color: var(--danger);
+  padding: 10px 12px;
+}
+
+.rollover-result {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rollover-result-metric {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 14px;
+}
+
+.rollover-result-metric span {
+  color: var(--muted);
+}
+
+.rollover-result-metric strong {
+  font-size: 24px;
+}
+
+.rollover-result-metric.success strong {
+  color: #2f855a;
+}
+
+.rollover-result-metric.danger strong {
+  color: var(--danger);
+}
+
+.rollover-result-details {
+  display: grid;
+  gap: 12px;
+}
+
+.rollover-result-details h4 {
+  margin: 0 0 6px;
+}
+
+.rollover-result-details ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
 .empty-state,
 .error-state {
   display: grid;
@@ -1264,6 +1403,20 @@ button {
 
   .timestamp {
     text-align: left;
+  }
+
+  .topbar-actions {
+    justify-content: flex-start;
+  }
+
+  .rollover-route,
+  .rollover-result {
+    grid-template-columns: 1fr;
+  }
+
+  .rollover-arrow {
+    transform: rotate(90deg);
+    text-align: center;
   }
 
   .content-grid,
