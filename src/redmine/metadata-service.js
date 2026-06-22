@@ -245,16 +245,6 @@ function uniqueUsersFromMemberships(memberships) {
   return [...users.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
-async function safeCollection(load, key, warnings, label) {
-  try {
-    const response = await load();
-    return key ? response[key] || [] : response || [];
-  } catch (error) {
-    warnings.push(`${label}: ${error.message}`);
-    return [];
-  }
-}
-
 async function cachedCollection(cacheKey, ttlMs, load, key, warnings, label) {
   const cache = metadataCacheFor(ttlMs);
   const cached = cache.get(cacheKey);

@@ -1,7 +1,6 @@
 .env
 data/*
 !data/dashboards.json
-!data/sprint-rollovers.json
 redmine-fields.json
 node_modules/
 .DS_Store

@@ -1,6 +1,5 @@
 const MAX_ROLLOVER_ISSUES = 500;
 const { getAgileSprintIds, primeAgileSprintIds } = require("./agile-membership-service");
-const { appendSprintRollover } = require("../storage/sprint-rollover-store");
 
 async function previewSprintRollover({ rootDir, redmine, config, projectId, targetSprintId, customFields = {} }) {
   validateScope({ projectId, targetSprintId, customFields });
@@ -84,17 +83,6 @@ async function executeSprintRollover({
   }
 
   if (moved.length) {
-    const movedAt = new Date().toISOString();
-    await appendSprintRollover(rootDir, {
-      movedAt,
-      projectId,
-      sourceSprintId: sourceSprint.id,
-      sourceSprintName: sourceSprint.name,
-      targetSprintId: targetSprint.id,
-      targetSprintName: targetSprint.name,
-      customFields,
-      issueIds: moved.map((issue) => issue.id),
-    });
     await primeAgileSprintIds(rootDir, moved.map((issue) => issue.id), targetSprint.id);
   }
 

@@ -13,7 +13,6 @@ export function renderLoading(elements, title = "Дашборд") {
   elements.dashboardTitle.textContent = title;
   elements.generatedAt.textContent = "Завантажую...";
   elements.warnings.hidden = true;
-  elements.metricsGrid.hidden = true;
   elements.widgetsGrid.replaceChildren(emptyState("Завантажую дашборд..."));
 }
 
@@ -21,14 +20,12 @@ export function renderSetupError(elements, message) {
   elements.generatedAt.textContent = "Не завантажено";
   elements.warnings.hidden = false;
   elements.warnings.textContent = message || "Перевір налаштування Redmine.";
-  elements.metricsGrid.hidden = true;
   elements.widgetsGrid.replaceChildren(errorState(message || "Не вдалося завантажити дашборд."));
 }
 
 export function renderDashboardData(elements, dashboardConfig, data, options = {}) {
   elements.dashboardTitle.textContent = dashboardConfig.name;
   elements.generatedAt.textContent = data?.generatedAt ? `Оновлено ${formatDateTime(data.generatedAt)}` : "Додай card";
-  elements.metricsGrid.hidden = true;
 
   renderWarnings(elements.warnings, collectWarnings(options.cardData, data));
   renderCards(elements.widgetsGrid, dashboardConfig, data, options);

@@ -13,19 +13,6 @@ export function renderDashboardTabs(container, dashboards, currentDashboardId) {
   }
 }
 
-export function renderTemplateList(container, templates) {
-  container.replaceChildren();
-
-  for (const template of templates) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "template-button";
-    button.dataset.templateId = template.id;
-    button.textContent = template.name;
-    container.append(button);
-  }
-}
-
 export function renderCardTypeSelect(select) {
   select.replaceChildren();
 

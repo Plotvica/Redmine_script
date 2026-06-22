@@ -10,7 +10,6 @@ export const elements = {
   editModeButton: document.querySelector("#editModeButton"),
   exportMarkdownButton: document.querySelector("#exportMarkdownButton"),
   generatedAt: document.querySelector("#generatedAt"),
-  metricsGrid: document.querySelector("#metricsGrid"),
   newDashboardButton: document.querySelector("#newDashboardButton"),
   viewModeButton: document.querySelector("#viewModeButton"),
   refreshButton: document.querySelector("#refreshButton"),
