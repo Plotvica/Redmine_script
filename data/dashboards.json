@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-22T18:55:22.340Z",
+  "updatedAt": "2026-07-07T11:23:56.482Z",
   "dashboards": [
     {
       "id": "4e64e1c3-34f2-478f-9138-33f258cef55f",
@@ -22,7 +22,7 @@
         "statusId": "*",
         "priorityId": "",
         "customFields": {
-          "cf_28": "Core"
+          "cf_28": "E-Commerce"
         }
       },
       "cards": [
@@ -58,7 +58,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -95,7 +95,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -133,7 +133,7 @@
               "statusId": "open",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -167,7 +167,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -201,7 +201,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -235,7 +235,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -269,7 +269,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -303,7 +303,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -338,7 +338,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
@@ -373,7 +373,7 @@
               "statusId": "*",
               "priorityId": "",
               "customFields": {
-                "cf_28": "Core"
+                "cf_28": "E-Commerce"
               }
             }
           }
